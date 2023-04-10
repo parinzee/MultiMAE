@@ -47,7 +47,21 @@ from utils.task_balancing import (NoWeightingStrategy,
                                   UncertaintyWeightingStrategy)
 
 DOMAIN_CONF = {
-    'rgb': {
+#     'rgb': {
+#         'channels': 3,
+#         'stride_level': 1,
+#         'input_adapter': partial(PatchedInputAdapter, num_channels=3),
+#         'output_adapter': partial(SpatialOutputAdapter, num_channels=3),
+#         'loss': MaskedMSELoss,
+#     },
+    '4h': {
+        'channels': 3,
+        'stride_level': 1,
+        'input_adapter': partial(PatchedInputAdapter, num_channels=3),
+        'output_adapter': partial(SpatialOutputAdapter, num_channels=3),
+        'loss': MaskedMSELoss,
+    },
+    '1d': {
         'channels': 3,
         'stride_level': 1,
         'input_adapter': partial(PatchedInputAdapter, num_channels=3),
@@ -270,8 +284,20 @@ def get_model(args):
 
     # Add normalized pixel output adapter if specified
     if args.extra_norm_pix_loss:
-        output_adapters['norm_rgb'] = DOMAIN_CONF['rgb']['output_adapter'](
-            stride_level=DOMAIN_CONF['rgb']['stride_level'],
+        output_adapters['norm_4h'] = DOMAIN_CONF['4h']['output_adapter'](
+            stride_level=DOMAIN_CONF['4h']['stride_level'],
+            patch_size_full=args.patch_size,
+            dim_tokens=args.decoder_dim,
+            depth=args.decoder_depth,
+            num_heads=args.decoder_num_heads,
+            use_task_queries=args.decoder_use_task_queries,
+            task='rgb',
+            context_tasks=list(args.in_domains),
+            use_xattn=args.decoder_use_xattn
+        )
+        
+        output_adapters['norm_1d'] = DOMAIN_CONF['1d']['output_adapter'](
+            stride_level=DOMAIN_CONF['1d']['stride_level'],
             patch_size_full=args.patch_size,
             dim_tokens=args.decoder_dim,
             depth=args.decoder_depth,
@@ -325,8 +351,12 @@ def main(args):
 
     # Add normalized pixel loss if specified
     if args.extra_norm_pix_loss:
-        tasks_loss_fn['norm_rgb'] = DOMAIN_CONF['rgb']['loss'](patch_size=args.patch_size,
-                                                               stride=DOMAIN_CONF['rgb']['stride_level'],
+        tasks_loss_fn['norm_4h'] = DOMAIN_CONF['4h']['loss'](patch_size=args.patch_size,
+                                                               stride=DOMAIN_CONF['4h']['stride_level'],
+                                                               norm_pix=True)
+        
+        tasks_loss_fn['norm_1d'] = DOMAIN_CONF['1d']['loss'](patch_size=args.patch_size,
+                                                               stride=DOMAIN_CONF['1d']['stride_level'],
                                                                norm_pix=True)
 
     # Get dataset
@@ -507,8 +537,11 @@ def train_one_epoch(model: torch.nn.Module, data_loader: Iterable, tasks_loss_fn
             )
 
             if extra_norm_pix_loss:
-                tasks_dict['norm_rgb'] = tasks_dict['rgb']
-                masks['norm_rgb'] = masks.get('rgb', None)
+                tasks_dict['norm_4h'] = tasks_dict['4h']
+                tasks_dict['norm_1d'] = tasks_dict['1d']
+                
+                masks['norm_4h'] = masks.get('4h', None)
+                masks['norm_1d'] = masks.get('1d', None)
 
             task_losses = {}
             for task in preds:
